@@ -1,0 +1,20 @@
+dependencies {
+    api project(':fast-ai-boot3-core')
+    api project(':fast-ai-boot3-annotations')
+
+    implementation 'org.springframework.boot:spring-boot-autoconfigure'
+    implementation 'org.springframework.boot:spring-boot'
+    implementation 'org.springframework.ai:spring-ai-client-chat'
+    implementation 'org.springframework.ai:spring-ai-model'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+    // 默认持久化后端为文件型 SQLite 数据库。
+    api 'com.zaxxer:HikariCP'
+    api 'org.xerial:sqlite-jdbc'
+
+    annotationProcessor 'org.springframework.boot:spring-boot-autoconfigure-processor'
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.ai:spring-ai-test'
+}

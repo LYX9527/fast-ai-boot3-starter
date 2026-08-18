@@ -1,0 +1,8 @@
+rootProject.name = 'fast-ai-boot3-starter'
+
+include 'fast-ai-boot3-core'
+include 'fast-ai-boot3-annotations'
+include 'fast-ai-boot3-processor'
+include 'fast-ai-boot3-autoconfigure'
+include 'fast-ai-boot3-starter'
+include 'fast-ai-boot3-starter-deepseek'

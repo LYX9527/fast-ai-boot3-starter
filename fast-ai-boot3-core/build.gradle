@@ -1,0 +1,9 @@
+dependencies {
+    api 'org.springframework.ai:spring-ai-client-chat'
+    api 'org.springframework.ai:spring-ai-model'
+    api 'io.projectreactor:reactor-core'
+    api 'org.springframework:spring-jdbc'
+
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'org.slf4j:slf4j-api'
+}

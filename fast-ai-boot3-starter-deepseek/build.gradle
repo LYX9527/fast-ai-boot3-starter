@@ -1,0 +1,6 @@
+dependencies {
+    api project(':fast-ai-boot3-autoconfigure')
+    api project(':fast-ai-boot3-annotations')
+
+    implementation 'org.springframework.ai:spring-ai-starter-model-deepseek'
+}

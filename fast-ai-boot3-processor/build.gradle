@@ -1,0 +1,11 @@
+dependencies {
+    implementation project(':fast-ai-boot3-annotations')
+    implementation 'com.squareup:javapoet:1.13.0'
+
+    compileOnly 'com.google.auto.service:auto-service-annotations:1.1.1'
+    annotationProcessor 'com.google.auto.service:auto-service:1.1.1'
+
+    testImplementation project(':fast-ai-boot3-core')
+    testImplementation 'com.google.testing.compile:compile-testing:0.23.0'
+    testImplementation 'org.springframework:spring-context'
+}
