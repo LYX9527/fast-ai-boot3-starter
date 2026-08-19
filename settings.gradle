@@ -1,8 +1,14 @@
 rootProject.name = 'fast-ai-boot3-starter'
 
-include 'fast-ai-boot3-core'
-include 'fast-ai-boot3-annotations'
-include 'fast-ai-boot3-processor'
-include 'fast-ai-boot3-autoconfigure'
-include 'fast-ai-boot3-starter'
-include 'fast-ai-boot3-starter-deepseek'
+// 仅纳入正式发布模块。examples 下的业务模拟项目使用独立 Gradle 构建，
+// 通过 composite build 引用当前源码，不参与 starter 的聚合构建和制品发布。
+def productionModules = [
+        'fast-ai-boot3-core',
+        'fast-ai-boot3-annotations',
+        'fast-ai-boot3-processor',
+        'fast-ai-boot3-autoconfigure',
+        'fast-ai-boot3-starter',
+        'fast-ai-boot3-starter-deepseek'
+]
+
+productionModules.each { include it }

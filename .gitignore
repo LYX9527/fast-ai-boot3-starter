@@ -6,5 +6,11 @@ build/
 out/
 *.log
 data/
+node_modules/
+dist/
+.DS_Store
 gradle/
+!examples/fast-ai-business-demo/backend/gradle/
+!examples/fast-ai-business-demo/backend/gradle/**
 doc/
+examples/

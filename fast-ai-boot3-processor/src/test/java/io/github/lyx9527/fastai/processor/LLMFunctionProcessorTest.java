@@ -25,7 +25,7 @@ class LLMFunctionProcessorTest {
 
                 public class OrderService {
                     @LLMFunctionCalling(
-                        name = "order.query",
+                        name = "order-query",
                         description = "Query an order",
                         groups = {"order"}
                     )
@@ -71,7 +71,7 @@ class LLMFunctionProcessorTest {
                 public class OrderService {
 
                     @LLMFunctionCalling(
-                        name = "order.query",
+                        name = "order-query",
                         description = "Query an order",
                         groups = {"legacy", "shared"}
                     )
@@ -81,7 +81,7 @@ class LLMFunctionProcessorTest {
                     }
 
                     @LLMFunctionCalling(
-                        name = "order.delete",
+                        name = "order-delete",
                         description = "Delete an order"
                     )
                     @LLMToolSecurity(
@@ -120,6 +120,29 @@ class LLMFunctionProcessorTest {
                 .orElseThrow();
         assertThat(deleteAdapter).contains("Set.of(\"order:delete\")");
         assertThat(deleteAdapter).doesNotContain("order:read");
+    }
+
+    @Test
+    void rejectsToolNameContainingDot() {
+        JavaFileObject source = JavaFileObjects.forSourceString("sample.InvalidToolService", """
+                package sample;
+
+                import io.github.lyx9527.fastai.annotation.LLMFunctionCalling;
+
+                public class InvalidToolService {
+                    @LLMFunctionCalling(name = "order.query", description = "Query an order")
+                    public String query(String orderNo) {
+                        return orderNo;
+                    }
+                }
+                """);
+
+        Compilation compilation = Compiler.javac()
+                .withProcessors(new LLMFunctionProcessor())
+                .compile(source);
+
+        assertThat(compilation).failed();
+        assertThat(compilation).hadErrorContaining("Tool 名称只能包含字母、数字、下划线或短横线");
     }
 
     private String content(JavaFileObject source) {

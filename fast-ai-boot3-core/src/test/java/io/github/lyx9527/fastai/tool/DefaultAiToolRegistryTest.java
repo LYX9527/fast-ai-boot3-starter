@@ -17,19 +17,25 @@ class DefaultAiToolRegistryTest {
 
     @Test
     void resolvesToolsBySetAndGroupWithoutDuplicates() {
-        AiGeneratedTool query = tool("order.query", Set.of("order", "query"), "order-tools",
+        AiGeneratedTool query = tool("order-query", Set.of("order", "query"), "order-tools",
                 AiToolSecurityMetadata.defaults(), new AtomicInteger());
-        AiGeneratedTool delete = tool("order.delete", Set.of("order", "write"), "order-tools",
+        AiGeneratedTool delete = tool("order-delete", Set.of("order", "write"), "order-tools",
                 AiToolSecurityMetadata.defaults(), new AtomicInteger());
-        AiGeneratedTool customer = tool("customer.query", Set.of("customer"), "customer-tools",
+        AiGeneratedTool customer = tool("customer-query", Set.of("customer"), "customer-tools",
                 AiToolSecurityMetadata.defaults(), new AtomicInteger());
         DefaultAiToolRegistry registry = new DefaultAiToolRegistry(Set.of(query, delete, customer));
 
         Collection<ToolCallback> bySet = registry.resolve(Set.of(), Set.of(), Set.of("order-tools"), false);
-        assertEquals(Set.of("order.query", "order.delete"), names(bySet));
+        assertEquals(Set.of("order-query", "order-delete"), names(bySet));
 
-        Collection<ToolCallback> mixed = registry.resolve(Set.of("order.query"), Set.of("order"), Set.of(), false);
-        assertEquals(Set.of("order.query", "order.delete"), names(mixed));
+        Collection<ToolCallback> mixed = registry.resolve(Set.of("order-query"), Set.of("order"), Set.of(), false);
+        assertEquals(Set.of("order-query", "order-delete"), names(mixed));
+
+        Map<String, AiToolMetadata> metadata = registry.metadata().stream()
+                .collect(java.util.stream.Collectors.toMap(AiToolMetadata::name, item -> item));
+        assertEquals("order-query", metadata.get("order-query").description());
+        assertEquals(Set.of("order", "query"), metadata.get("order-query").groups());
+        assertEquals("order-tools", metadata.get("order-query").toolSet());
 
         assertThrows(IllegalArgumentException.class,
                 () -> registry.resolve(Set.of(), Set.of(), Set.of("missing-tools"), false));
@@ -41,8 +47,8 @@ class DefaultAiToolRegistryTest {
         AiToolSecurityMetadata security = new AiToolSecurityMetadata(AiToolRiskLevel.DANGEROUS,
                 Set.of("order:delete"), false, true);
         DefaultAiToolRegistry registry = new DefaultAiToolRegistry(
-                Set.of(tool("order.delete", Set.of("order"), "order-tools", security, invocations)));
-        ToolCallback callback = registry.resolve(Set.of("order.delete"), Set.of(), false).iterator().next();
+                Set.of(tool("order-delete", Set.of("order"), "order-tools", security, invocations)));
+        ToolCallback callback = registry.resolve(Set.of("order-delete"), Set.of(), false).iterator().next();
 
         assertThrows(AiToolSecurityException.class,
                 () -> callback.call("{}", new ToolContext(Map.of())));
@@ -52,10 +58,20 @@ class DefaultAiToolRegistryTest {
 
         String result = callback.call("{}", new ToolContext(Map.of(
                 AiToolContextValues.PERMISSIONS, Set.of("order:delete"),
-                AiToolContextValues.CONFIRMED_TOOLS, Set.of("order.delete"))));
+                AiToolContextValues.CONFIRMED_TOOLS, Set.of("order-delete"))));
 
         assertEquals("ok", result);
         assertEquals(1, invocations.get());
+    }
+
+    @Test
+    void rejectsToolNameContainingDotAtRuntime() {
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> new DefaultAiToolRegistry(Set.of(tool("order.query", Set.of(), "order-tools",
+                        AiToolSecurityMetadata.defaults(), new AtomicInteger()))));
+
+        assertEquals("非法 LLM Tool 名称：order.query，名称只能包含字母、数字、下划线或短横线",
+                exception.getMessage());
     }
 
     private static Set<String> names(Collection<ToolCallback> callbacks) {

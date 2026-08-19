@@ -4,14 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.lyx9527.fastai.chat.AiChatService;
-import io.github.lyx9527.fastai.context.AiContextCompressor;
-import io.github.lyx9527.fastai.context.AiContextManager;
-import io.github.lyx9527.fastai.context.AiTokenEstimator;
-import io.github.lyx9527.fastai.context.HeuristicAiTokenEstimator;
-import io.github.lyx9527.fastai.intent.AiIntentDefinition;
-import io.github.lyx9527.fastai.intent.IntentRecognitionService;
+import io.github.lyx9527.fastai.context.*;
+import io.github.lyx9527.fastai.history.AiConversationHistoryStore;
+import io.github.lyx9527.fastai.history.JdbcAiConversationHistoryStore;
 import io.github.lyx9527.fastai.memory.*;
 import io.github.lyx9527.fastai.tool.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -28,12 +27,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 
 import javax.sql.DataSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -42,7 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Fast AI Starter 的 Spring Boot 自动配置入口。
- * 负责装配 Provider、持久化记忆、上下文压缩、Tool、安全、意图识别和统一对话服务。
+ * 负责装配 Provider、持久化记忆、上下文压缩、Tool、安全、Tool 语义选择和统一对话服务。
  */
 @AutoConfiguration(afterName = {
         "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration",
@@ -55,6 +53,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 @ConditionalOnProperty(prefix = "fast.ai", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(FastAiProperties.class)
 public class FastAiAutoConfiguration {
+
+    /** 自动配置和持久化路径提示的运行日志记录器。 */
+    private static final Logger logger = LoggerFactory.getLogger(FastAiAutoConfiguration.class);
 
     @Bean
     @ConditionalOnMissingBean
@@ -79,6 +80,7 @@ public class FastAiAutoConfiguration {
         String jdbcUrl = configuredFile.startsWith("jdbc:sqlite:")
                 ? configuredFile
                 : "jdbc:sqlite:" + absolutePath(configuredFile);
+        logger.info("Fast AI SQLite 持久化地址：{}", jdbcUrl);
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(jdbcUrl);
         config.setDriverClassName("org.sqlite.JDBC");
@@ -114,27 +116,49 @@ public class FastAiAutoConfiguration {
         return new HikariDataSource(config);
     }
 
-    @Bean
-    @ConditionalOnMissingBean
-    public ChatMemoryRepository chatMemoryRepository(
+    @Bean("fastAiChatMemoryRepository")
+    @Primary
+    @ConditionalOnMissingBean(name = "fastAiChatMemoryRepository")
+    public ChatMemoryRepository fastAiChatMemoryRepository(
             @Qualifier("fastAiPersistenceDataSource") DataSource dataSource,
             ObjectProvider<ObjectMapper> objectMappers) {
         return new JdbcChatMemoryRepository(dataSource, objectMapper(objectMappers));
     }
 
-    @Bean
-    @ConditionalOnMissingBean
-    public ChatMemory chatMemory(ChatMemoryRepository repository, FastAiProperties properties) {
+    @Bean("fastAiChatMemory")
+    @Primary
+    @ConditionalOnMissingBean(name = "fastAiChatMemory")
+    public ChatMemory fastAiChatMemory(
+            @Qualifier("fastAiChatMemoryRepository") ChatMemoryRepository repository,
+            FastAiProperties properties) {
         return MessageWindowChatMemory.builder()
                 .chatMemoryRepository(repository)
                 .maxMessages(properties.getMemory().getShortTerm().getMaxMessages())
                 .build();
     }
 
-    @Bean
-    @ConditionalOnMissingBean
-    public MessageChatMemoryAdvisor messageChatMemoryAdvisor(ChatMemory chatMemory) {
+    @Bean("fastAiMessageChatMemoryAdvisor")
+    @Primary
+    @ConditionalOnMissingBean(name = "fastAiMessageChatMemoryAdvisor")
+    public MessageChatMemoryAdvisor fastAiMessageChatMemoryAdvisor(
+            @Qualifier("fastAiChatMemory") ChatMemory chatMemory) {
         return MessageChatMemoryAdvisor.builder(chatMemory).build();
+    }
+
+    @Bean("fastAiConversationUsageStore")
+    @Primary
+    @ConditionalOnMissingBean(name = "fastAiConversationUsageStore")
+    public AiConversationUsageStore fastAiConversationUsageStore(
+            @Qualifier("fastAiPersistenceDataSource") DataSource dataSource) {
+        return new JdbcAiConversationUsageStore(dataSource);
+    }
+
+    @Bean("fastAiConversationHistoryStore")
+    @Primary
+    @ConditionalOnMissingBean(name = "fastAiConversationHistoryStore")
+    public AiConversationHistoryStore fastAiConversationHistoryStore(
+            @Qualifier("fastAiPersistenceDataSource") DataSource dataSource) {
+        return new JdbcAiConversationHistoryStore(dataSource);
     }
 
     @Bean
@@ -200,14 +224,16 @@ public class FastAiAutoConfiguration {
     @Bean
     @ConditionalOnBean(AiContextCompressor.class)
     @ConditionalOnMissingBean
-    public AiContextManager aiContextManager(ChatMemory chatMemory, AiTokenEstimator tokenEstimator,
+    public AiContextManager aiContextManager(@Qualifier("fastAiChatMemory") ChatMemory chatMemory,
+            AiTokenEstimator tokenEstimator,
             AiContextCompressor compressor, FastAiProperties properties) {
         return new DefaultAiContextManager(chatMemory, tokenEstimator, compressor, properties);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public AiMemoryService aiMemoryService(AiLongTermMemoryStore longTermMemoryStore, ChatMemory chatMemory,
+    public AiMemoryService aiMemoryService(AiLongTermMemoryStore longTermMemoryStore,
+            @Qualifier("fastAiChatMemory") ChatMemory chatMemory,
             AiConversationKeyFactory conversationKeyFactory) {
         return new DefaultAiMemoryService(longTermMemoryStore, chatMemory, conversationKeyFactory);
     }
@@ -215,30 +241,35 @@ public class FastAiAutoConfiguration {
     @Bean
     @ConditionalOnBean(name = "fastAiChatClient")
     @ConditionalOnMissingBean
-    public AiChatService aiChatService(@Qualifier("fastAiChatClient") ChatClient chatClient, ChatMemory chatMemory,
-            MessageChatMemoryAdvisor memoryAdvisor, AiConversationKeyFactory conversationKeyFactory,
-            AiLongTermMemoryStore longTermMemoryStore, AiMemoryExtractor memoryExtractor,
+    public AiChatService aiChatService(@Qualifier("fastAiChatClient") ChatClient chatClient,
+            @Qualifier("fastAiChatMemory") ChatMemory chatMemory,
+            @Qualifier("fastAiConversationUsageStore") AiConversationUsageStore conversationUsageStore,
+            @Qualifier("fastAiConversationHistoryStore") AiConversationHistoryStore conversationHistoryStore,
+            AiConversationKeyFactory conversationKeyFactory, AiLongTermMemoryStore longTermMemoryStore,
+            AiMemoryExtractor memoryExtractor,
             AiToolRegistry toolRegistry, AiContextManager contextManager,
+            ObjectProvider<AiToolSelectionService> toolSelectionServices,
             @Qualifier("fastAiMemoryExecutor") ExecutorService memoryExecutor, FastAiProperties properties) {
-        return new DefaultAiChatService(chatClient, chatMemory, memoryAdvisor, conversationKeyFactory,
-                longTermMemoryStore, memoryExtractor, toolRegistry, contextManager, memoryExecutor, properties);
+        return new DefaultAiChatService(chatClient, chatMemory, conversationUsageStore, conversationHistoryStore,
+                conversationKeyFactory, longTermMemoryStore, memoryExtractor, toolRegistry, contextManager,
+                toolSelectionServices.getIfAvailable(), memoryExecutor, properties);
     }
 
     @Bean
     @ConditionalOnBean(name = "fastAiChatClient")
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "fast.ai.intent", name = "enabled", havingValue = "true", matchIfMissing = true)
-    public IntentRecognitionService intentRecognitionService(
+    @ConditionalOnProperty(prefix = "fast.ai.tools.semantic-routing", name = "enabled",
+            havingValue = "true", matchIfMissing = true)
+    public AiToolSelectionService aiToolSelectionService(
             @Qualifier("fastAiChatClient") ChatClient chatClient,
-            ObjectProvider<AiIntentDefinition> customDefinitions, FastAiProperties properties) {
-        List<AiIntentDefinition> definitions = new ArrayList<>(customDefinitions.orderedStream().toList());
-        properties.getIntent().getDefinitions().stream()
-                .filter(definition -> definition.getCode() != null && definition.getDescription() != null)
-                .map(definition -> new AiIntentDefinition(definition.getCode(), definition.getDescription(),
-                        definition.getExamples(), definition.getRequiredSlots()))
-                .forEach(definitions::add);
-        return new DefaultIntentRecognitionService(chatClient, definitions,
-                properties.getIntent().getConfidenceThreshold());
+            AiToolRegistry toolRegistry,
+            @Qualifier("fastAiChatMemory") ChatMemory chatMemory,
+            AiConversationKeyFactory conversationKeyFactory,
+            FastAiProperties properties) {
+        FastAiProperties.SemanticRouting routing = properties.getTools().getSemanticRouting();
+        return new DefaultAiToolSelectionService(chatClient, toolRegistry, chatMemory, conversationKeyFactory,
+                routing.getConfidenceThreshold(), routing.getMaxSelectedTools(), routing.getCatalogBatchSize(),
+                routing.getHistoryMessages());
     }
 
     @Bean
@@ -273,4 +304,5 @@ public class FastAiAutoConfiguration {
         ObjectMapper objectMapper = objectMappers.getIfAvailable();
         return objectMapper == null ? new ObjectMapper().findAndRegisterModules() : objectMapper;
     }
+
 }

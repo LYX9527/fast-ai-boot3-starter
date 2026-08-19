@@ -24,4 +24,15 @@ public interface AiToolRegistry {
 
     /** 返回全部已注册 Tool 名称。 */
     Collection<String> names();
+
+    /**
+     * 返回供 LLM 语义路由使用的精简 Tool 目录。
+     *
+     * <p>自定义注册表没有额外元数据时，默认仅暴露 Tool 名称。</p>
+     */
+    default Collection<AiToolMetadata> metadata() {
+        return names().stream()
+                .map(name -> new AiToolMetadata(name, "", Set.of(), "", ""))
+                .toList();
+    }
 }

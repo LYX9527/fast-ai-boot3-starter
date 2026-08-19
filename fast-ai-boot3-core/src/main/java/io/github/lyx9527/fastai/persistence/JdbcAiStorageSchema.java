@@ -46,8 +46,38 @@ public final class JdbcAiStorageSchema {
                     PRIMARY KEY (id)
                 )
                 """);
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS fast_ai_conversation_usage (
+                    conversation_id VARCHAR(255) NOT NULL,
+                    cumulative_prompt_tokens BIGINT NOT NULL,
+                    cumulative_completion_tokens BIGINT NOT NULL,
+                    cumulative_total_tokens BIGINT NOT NULL,
+                    request_count BIGINT NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    PRIMARY KEY (conversation_id)
+                )
+                """);
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS fast_ai_conversation_history (
+                    id VARCHAR(128) NOT NULL,
+                    conversation_key VARCHAR(255) NOT NULL,
+                    tenant_id VARCHAR(255) NOT NULL,
+                    user_id VARCHAR(255) NOT NULL,
+                    conversation_id VARCHAR(255) NOT NULL,
+                    turn_id VARCHAR(128) NOT NULL,
+                    message_order INTEGER NOT NULL,
+                    message_type VARCHAR(32) NOT NULL,
+                    content TEXT,
+                    created_at TIMESTAMP NOT NULL,
+                    PRIMARY KEY (id)
+                )
+                """);
         createIndexIfMissing(dataSource, jdbc, "fast_ai_long_term_memory",
                 "idx_fast_ai_long_term_user", "tenant_id, user_id, created_at");
+        createIndexIfMissing(dataSource, jdbc, "fast_ai_conversation_history",
+                "idx_fast_ai_history_scope", "tenant_id, user_id, turn_id");
+        createIndexIfMissing(dataSource, jdbc, "fast_ai_conversation_history",
+                "idx_fast_ai_history_key", "conversation_key, turn_id");
     }
 
     private static void createIndexIfMissing(DataSource dataSource, JdbcTemplate jdbc, String table,

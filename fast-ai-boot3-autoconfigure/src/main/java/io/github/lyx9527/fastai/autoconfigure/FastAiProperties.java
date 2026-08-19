@@ -3,10 +3,6 @@ package io.github.lyx9527.fastai.autoconfigure;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
 
 /**
  * {@code fast.ai} 前缀下的全部 starter 配置。
@@ -34,8 +30,6 @@ public class FastAiProperties {
     private final Memory memory = new Memory();
     /** 对话历史和长期记忆持久化配置。 */
     private final Persistence persistence = new Persistence();
-    /** 意图识别配置。 */
-    private final Intent intent = new Intent();
     /** Tool 注册与选择配置。 */
     private final Tools tools = new Tools();
 
@@ -101,10 +95,6 @@ public class FastAiProperties {
 
     public Persistence getPersistence() {
         return this.persistence;
-    }
-
-    public Intent getIntent() {
-        return this.intent;
     }
 
     public Tools getTools() {
@@ -462,16 +452,53 @@ public class FastAiProperties {
     }
 
     /**
-     * LLM 意图识别配置。
+     * Tool 注册和请求级选择配置。
      */
-    public static class Intent {
+    public static class Tools {
 
-        /** 是否启用意图识别服务。 */
+        /** 是否启用业务 Tool。 */
         private boolean enabled = true;
-        /** 接受识别结果的最低置信度。 */
+        /** 关闭语义路由后，请求未指定名称、分组或工具集时是否注入全部 Tool。 */
+        private boolean includeAllWhenUnspecified = false;
+        /** 基于 LLM 语义的请求级 Tool 自动选择配置。 */
+        private final SemanticRouting semanticRouting = new SemanticRouting();
+
+        public boolean isEnabled() {
+            return this.enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isIncludeAllWhenUnspecified() {
+            return this.includeAllWhenUnspecified;
+        }
+
+        public void setIncludeAllWhenUnspecified(boolean includeAllWhenUnspecified) {
+            this.includeAllWhenUnspecified = includeAllWhenUnspecified;
+        }
+
+        public SemanticRouting getSemanticRouting() {
+            return this.semanticRouting;
+        }
+    }
+
+    /**
+     * LLM Tool 语义路由配置。
+     */
+    public static class SemanticRouting {
+
+        /** 是否启用 LLM Tool 语义选择。 */
+        private boolean enabled = true;
+        /** 接受 Tool 语义选择结果的最低置信度。 */
         private double confidenceThreshold = 0.7;
-        /** 通过配置文件声明的意图定义集合。 */
-        private final List<Definition> definitions = new ArrayList<>();
+        /** 单轮语义路由最多注入的 Tool 数量。 */
+        private int maxSelectedTools = 5;
+        /** 单次语义路由请求最多携带的候选 Tool 数量。 */
+        private int catalogBatchSize = 24;
+        /** 语义路由时最多读取的最近历史消息数量。 */
+        private int historyMessages = 6;
 
         public boolean isEnabled() {
             return this.enabled;
@@ -489,82 +516,28 @@ public class FastAiProperties {
             this.confidenceThreshold = confidenceThreshold;
         }
 
-        public List<Definition> getDefinitions() {
-            return this.definitions;
+        public int getMaxSelectedTools() {
+            return this.maxSelectedTools;
         }
 
-        /**
-         * 配置文件中的单个业务意图定义。
-         */
-        public static class Definition {
-
-            /** 意图唯一编码。 */
-            private String code;
-            /** 意图业务说明。 */
-            private String description;
-            /** 帮助模型识别意图的示例语句。 */
-            private Set<String> examples = new LinkedHashSet<>();
-            /** 识别该意图时应提取的必需槽位。 */
-            private Set<String> requiredSlots = new LinkedHashSet<>();
-
-            public String getCode() {
-                return this.code;
-            }
-
-            public void setCode(String code) {
-                this.code = code;
-            }
-
-            public String getDescription() {
-                return this.description;
-            }
-
-            public void setDescription(String description) {
-                this.description = description;
-            }
-
-            public Set<String> getExamples() {
-                return this.examples;
-            }
-
-            public void setExamples(Set<String> examples) {
-                this.examples = examples;
-            }
-
-            public Set<String> getRequiredSlots() {
-                return this.requiredSlots;
-            }
-
-            public void setRequiredSlots(Set<String> requiredSlots) {
-                this.requiredSlots = requiredSlots;
-            }
-        }
-    }
-
-    /**
-     * Tool 注册和请求级选择配置。
-     */
-    public static class Tools {
-
-        /** 是否启用业务 Tool。 */
-        private boolean enabled = true;
-        /** 请求未指定名称、分组或工具集时是否注入全部 Tool。 */
-        private boolean includeAllWhenUnspecified = false;
-
-        public boolean isEnabled() {
-            return this.enabled;
+        public void setMaxSelectedTools(int maxSelectedTools) {
+            this.maxSelectedTools = maxSelectedTools;
         }
 
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
+        public int getCatalogBatchSize() {
+            return this.catalogBatchSize;
         }
 
-        public boolean isIncludeAllWhenUnspecified() {
-            return this.includeAllWhenUnspecified;
+        public void setCatalogBatchSize(int catalogBatchSize) {
+            this.catalogBatchSize = catalogBatchSize;
         }
 
-        public void setIncludeAllWhenUnspecified(boolean includeAllWhenUnspecified) {
-            this.includeAllWhenUnspecified = includeAllWhenUnspecified;
+        public int getHistoryMessages() {
+            return this.historyMessages;
+        }
+
+        public void setHistoryMessages(int historyMessages) {
+            this.historyMessages = historyMessages;
         }
     }
 }

@@ -24,7 +24,7 @@ public interface AiChatService {
     Flux<AiChatChunk> stream(AiChatRequest request);
 
     /**
-     * 清理指定作用域的短期会话历史。
+     * 清理指定作用域的短期上下文、完整对话历史和累计 Token 数据。
      *
      * @param tenantId 租户标识
      * @param userId 用户标识

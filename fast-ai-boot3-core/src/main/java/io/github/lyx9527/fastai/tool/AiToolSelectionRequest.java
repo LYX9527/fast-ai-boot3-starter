@@ -1,16 +1,16 @@
-package io.github.lyx9527.fastai.intent;
+package io.github.lyx9527.fastai.tool;
 
 import io.github.lyx9527.fastai.memory.AiMemoryScope;
 
 /**
- * 意图识别请求。
+ * LLM Tool 语义选择请求。
  *
- * @param message 待识别的用户消息
+ * @param message 当前用户消息
  * @param scope 当前租户、用户和会话作用域
  */
-public record AiIntentRequest(String message, AiMemoryScope scope) {
+public record AiToolSelectionRequest(String message, AiMemoryScope scope) {
 
-    public AiIntentRequest {
+    public AiToolSelectionRequest {
         if (message == null || message.isBlank()) {
             throw new IllegalArgumentException("message must not be blank");
         }

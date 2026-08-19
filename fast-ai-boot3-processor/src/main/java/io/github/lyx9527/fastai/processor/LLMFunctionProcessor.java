@@ -20,8 +20,10 @@ import java.util.regex.Pattern;
 @AutoService(Processor.class)
 public final class LLMFunctionProcessor extends AbstractProcessor {
 
-    /** Tool 和工具集名称允许使用的字符格式。 */
-    private static final Pattern TOOL_NAME = Pattern.compile("^[a-zA-Z0-9_.-]+$");
+    /** DeepSeek/OpenAI Tool 名称允许使用的字符格式。 */
+    private static final Pattern TOOL_NAME = Pattern.compile("^[a-zA-Z0-9_-]+$");
+    /** 工具集名称允许使用的字符格式；工具集名称不会直接发送给模型。 */
+    private static final Pattern TOOL_SET_NAME = Pattern.compile("^[a-zA-Z0-9_.-]+$");
     /** 生成 Adapter 中统一使用的桥接方法名称。 */
     private static final String BRIDGE_METHOD = "invokeTool";
 
@@ -92,14 +94,14 @@ public final class LLMFunctionProcessor extends AbstractProcessor {
             valid = false;
         }
         if (!TOOL_NAME.matcher(annotation.name()).matches()) {
-            error(method, "Tool 名称只能包含字母、数字、下划线、短横线或点号");
+            error(method, "Tool 名称只能包含字母、数字、下划线或短横线");
             valid = false;
         }
         if (!this.toolNames.add(annotation.name())) {
             error(method, "LLM Tool 名称重复：" + annotation.name());
             valid = false;
         }
-        if (toolSet != null && !TOOL_NAME.matcher(toolSet.name()).matches()) {
+        if (toolSet != null && !TOOL_SET_NAME.matcher(toolSet.name()).matches()) {
             error(owner, "工具集名称只能包含字母、数字、下划线、短横线或点号");
             valid = false;
         }

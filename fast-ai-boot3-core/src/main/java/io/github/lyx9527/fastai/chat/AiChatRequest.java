@@ -15,6 +15,7 @@ import java.util.Set;
  * @param toolNames 本次请求允许注入的 Tool 名称
  * @param toolGroups 本次请求允许注入的 Tool 分组
  * @param toolSets 本次请求允许注入的工具集
+ * @param toolsEnabled 本次请求是否允许显式或 LLM 语义路由方式注入 Tool
  * @param permissions 服务端鉴权后授予的权限
  * @param confirmedToolNames 已完成显式确认的 Tool 名称
  * @param metadata 请求级扩展元数据
@@ -27,6 +28,7 @@ public record AiChatRequest(
         Set<String> toolNames,
         Set<String> toolGroups,
         Set<String> toolSets,
+        boolean toolsEnabled,
         Set<String> permissions,
         Set<String> confirmedToolNames,
         Map<String, Object> metadata) {
@@ -51,8 +53,15 @@ public record AiChatRequest(
 
     public AiChatRequest(String message, String tenantId, String userId, String conversationId,
             Set<String> toolNames, Set<String> toolGroups, Map<String, Object> metadata) {
-        this(message, tenantId, userId, conversationId, toolNames, toolGroups, Set.of(), Set.of(), Set.of(),
+        this(message, tenantId, userId, conversationId, toolNames, toolGroups, Set.of(), true, Set.of(), Set.of(),
                 metadata);
+    }
+
+    public AiChatRequest(String message, String tenantId, String userId, String conversationId,
+            Set<String> toolNames, Set<String> toolGroups, Set<String> toolSets,
+            Set<String> permissions, Set<String> confirmedToolNames, Map<String, Object> metadata) {
+        this(message, tenantId, userId, conversationId, toolNames, toolGroups, toolSets, true,
+                permissions, confirmedToolNames, metadata);
     }
 
     public static Builder builder() {
@@ -78,6 +87,8 @@ public record AiChatRequest(
         private final Set<String> toolGroups = new LinkedHashSet<>();
         /** 按工具集选择的 Tool。 */
         private final Set<String> toolSets = new LinkedHashSet<>();
+        /** 本次请求是否允许注入 Tool。 */
+        private boolean toolsEnabled = true;
         /** 服务端授予的权限集合。 */
         private final Set<String> permissions = new LinkedHashSet<>();
         /** 已确认执行的具体 Tool 名称。 */
@@ -144,6 +155,11 @@ public record AiChatRequest(
             return this;
         }
 
+        public Builder toolsEnabled(boolean toolsEnabled) {
+            this.toolsEnabled = toolsEnabled;
+            return this;
+        }
+
         /**
          * 设置由业务系统认证和鉴权上下文解析出的权限集合。
          *
@@ -191,8 +207,8 @@ public record AiChatRequest(
 
         public AiChatRequest build() {
             return new AiChatRequest(this.message, this.tenantId, this.userId, this.conversationId,
-                    this.toolNames, this.toolGroups, this.toolSets, this.permissions, this.confirmedToolNames,
-                    this.metadata);
+                    this.toolNames, this.toolGroups, this.toolSets, this.toolsEnabled,
+                    this.permissions, this.confirmedToolNames, this.metadata);
         }
     }
 }

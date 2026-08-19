@@ -1,8 +1,10 @@
 # Fast AI Boot 3 Starter
 
-基于 Spring Boot 3 和 Spring AI `1.1.8` 的通用企业 AI 能力 starter，提供统一对话、流式输出、意图识别、用户级持久化长短期记忆和 APT Tool Calling。
+基于 Spring Boot 3 和 Spring AI `1.1.8` 的通用企业 AI 能力 starter，提供统一对话、流式输出、LLM Tool 语义路由、用户级持久化长短期记忆和 APT Tool Calling。
 
 完整的总体架构、模块划分、核心流程、数据模型、安全机制与演进规划见：[设计说明](doc/设计说明.md)。
+
+可运行的 DeepSeek 业务接入示例位于 [`examples/fast-ai-business-demo`](examples/fast-ai-business-demo)，包含 Spring Boot 3.4.3 后端和 Vite + Vue 3 前端。示例使用独立 Gradle 构建，不会进入 starter 的正式制品。
 
 ## Provider 依赖规则
 
@@ -129,6 +131,10 @@ Flux<AiChatChunk> chunks = aiChatService.stream(request);
 - `DELTA`：模型生成的文本增量。
 - `COMPLETE`：流结束，携带 Provider 返回的实际 Prompt Token；Provider 未返回 Usage 时保留估算值。
 
+流式调用会将同步 Tool 语义路由、JDBC 上下文准备和完成后的历史持久化调度到 `boundedElastic`，不会在 WebFlux 的 `reactor-http-nio` 事件线程执行阻塞操作；模型文本流仍通过 Reactor 持续输出。
+
+`occupancyRate` 表示本轮发送给模型的 Prompt 占用率，不包含模型正在生成的 Completion。当前回答会在下一轮作为历史消息进入 Prompt，因此“回答很长但本轮水位较低”属于正常现象。页面如需展示下一轮预估水位，可以使用“本轮实际 Prompt + 本轮 Completion”进行近似计算。
+
 Spring MVC SSE 示例：
 
 ```java
@@ -157,7 +163,11 @@ public Flux<ServerSentEvent<AiChatChunk>> stream(ChatRequest request) {
     "tokensBeforeCompression": 53120,
     "messagesBeforeCompression": 86,
     "messagesAfterCompression": 9,
-    "summarizedMessages": 78
+    "summarizedMessages": 78,
+    "cumulativePromptTokens": 128540,
+    "cumulativeCompletionTokens": 8640,
+    "cumulativeTotalTokens": 137180,
+    "conversationRequestCount": 23
   }
 }
 ```
@@ -200,7 +210,8 @@ tenantId + userId + conversationId
 
 默认能力：
 
-- 短期记忆：Spring AI `MessageWindowChatMemory` + JDBC Repository，上下文窗口内的完整消息持久化入库，默认最多保留 200 条消息。
+- 短期记忆：Spring AI `MessageWindowChatMemory` + JDBC Repository，只保存模型下一轮需要使用的上下文窗口，默认最多保留 200 条消息。
+- 完整历史：`AiConversationHistoryStore` 追加保存每轮用户和助手消息，不受短期窗口裁剪或长上下文压缩影响。
 - 长期记忆：JDBC 持久化，按 `tenantId + userId` 隔离。
 - 自动提取：对话结束后异步提取稳定用户事实和偏好。
 - 业务接口：可注入 `AiMemoryService` 主动保存、查询和删除记忆。
@@ -209,7 +220,7 @@ tenantId + userId + conversationId
 
 ### 默认 SQLite
 
-业务系统不配置存储类型时，starter 自动使用文件型 SQLite，同时创建对话历史表和长期记忆表：
+业务系统不配置存储类型时，starter 自动使用文件型 SQLite，同时创建短期上下文、完整历史、长期记忆和累计用量表：
 
 ```yaml
 fast:
@@ -253,8 +264,12 @@ fast:
 
 首次启动会自动创建：
 
-- `fast_ai_chat_memory`：持久化系统消息、用户消息、助手消息、Tool Call 和 Tool Response。
+- `fast_ai_chat_memory`：持久化模型短期上下文窗口，允许被窗口策略裁剪或被长上下文压缩结果覆盖。
+- `fast_ai_conversation_history`：追加持久化完整用户/助手对话，不受短期窗口裁剪影响。
 - `fast_ai_long_term_memory`：持久化租户与用户级长期事实、偏好、TTL 和扩展元数据。
+- `fast_ai_conversation_usage`：按脱敏会话 Key 持久化累计输入、输出、总 Token 和成功请求次数。
+
+业务系统可以注入 `AiConversationHistoryStore` 查询完整历史；`AiChatService.clearConversation(...)` 会同时清理该会话的短期上下文、完整历史和累计 Token 数据。
 
 配置示例：
 
@@ -273,37 +288,43 @@ fast:
         ttl: 180d
 ```
 
-## 意图识别
+## LLM Tool 语义路由
 
-通过配置声明意图：
+业务系统不再维护意图编码、关键词、示例或意图到 Tool 的映射。starter 自动读取 APT Tool 元数据：
+
+- `@LLMFunctionCalling` 提供 Tool 名称和业务描述。
+- `@LLMToolGroup` 提供能力分组。
+- `@LLMToolSet` 提供工具集名称和业务说明。
+
+请求未显式指定 Tool 时，独立路由模型只接收上述精简目录，不接收全部 Tool 参数 Schema。路由模型根据用户语义返回需要的 Tool 名称，正式对话再只注入被选中的 Tool Schema。
+
+默认路由顺序如下：
+
+1. 请求通过 `toolNames`、`toolGroups` 或 `toolSets` 显式选择时直接加载，跳过 LLM 语义路由。
+2. 未显式选择且 `semantic-routing.enabled=true` 时，使用 LLM 根据当前消息、最近对话和 Tool 业务描述进行语义选择。
+3. 只接受注册表中真实存在、达到置信度阈值且不超过数量上限的 Tool 名称。
+4. 普通闲聊、低置信度、模型异常或返回未知 Tool 时，本轮注入 0 个 Tool，不回退为全量注入。
+5. 只有关闭语义路由后，`include-all-when-unspecified` 才作为兼容模式生效。
+
+配置仅用于控制路由策略，不包含任何业务意图词库：
 
 ```yaml
 fast:
   ai:
-    intent:
+    tools:
       enabled: true
-      confidence-threshold: 0.75
-      definitions:
-        - code: order.query
-          description: 查询订单状态
-          examples:
-            - 我的订单到哪里了
-            - 查询订单 20260818001
-          required-slots:
-            - orderNo
+      include-all-when-unspecified: false
+      semantic-routing:
+        enabled: true
+        confidence-threshold: 0.7
+        max-selected-tools: 5
+        catalog-batch-size: 24
+        history-messages: 6
 ```
 
-业务注入：
+当注册 Tool 超过 `catalog-batch-size` 时，starter 会分批调用路由模型召回候选，并逐轮收敛后再做最终选择。单次路由请求看到的 Tool 数量保持有界，不会随着全部 Tool 数量线性扩大。
 
-```java
-private final IntentRecognitionService intentRecognitionService;
-
-AiIntentResult result = intentRecognitionService.recognize(
-        new AiIntentRequest(message, new AiMemoryScope(tenantId, userId, conversationId))
-);
-```
-
-低于置信度阈值、未命中配置意图或模型返回异常时统一返回 `unknown`，不会直接执行业务操作。
+请求可以用 `.toolsEnabled(false)` 禁止本轮通过显式选择或 LLM 语义路由注入任何 Tool。
 
 ## APT Tool Calling
 
@@ -328,7 +349,7 @@ import org.springframework.stereotype.Service;
 public class OrderService {
 
     @LLMFunctionCalling(
-            name = "order.query",
+            name = "order-query",
             description = "查询当前用户的订单",
             groups = {"query"})
     public OrderDTO query(
@@ -339,7 +360,7 @@ public class OrderService {
     }
 
     @LLMFunctionCalling(
-            name = "order.cancel",
+            name = "order-cancel",
             description = "取消当前用户的订单")
     @LLMToolGroup("write")
     @LLMToolSecurity(
@@ -373,7 +394,7 @@ AiChatRequest request = AiChatRequest.builder()
         .message("帮我查询订单 20260818001")
         .userId("u-1001")
         .conversationId("c-1")
-        .addTool("order.query")
+        .addTool("order-query")
         .build();
 ```
 
@@ -399,7 +420,7 @@ AiChatRequest request = AiChatRequest.builder()
         .conversationId(conversationId)
         .addToolSet("order-tools")
         .addPermission("order:cancel")
-        .confirmTool("order.cancel")
+        .confirmTool("order-cancel")
         .build();
 ```
 
@@ -411,13 +432,15 @@ AiChatRequest request = AiChatRequest.builder()
 - `permissions` 和 `confirmedToolNames` 必须由可信服务端逻辑生成，不能直接透传客户端字段。
 - 请求 `metadata` 即使包含同名字段，也无法覆盖可信的租户、用户、权限和确认信息。
 
-默认不会把所有工具暴露给模型。如确需全量注入：
+默认不会把所有工具暴露给模型。如需兼容旧系统，在明确关闭 LLM 语义路由后才可启用全量注入：
 
 ```yaml
 fast:
   ai:
     tools:
       include-all-when-unspecified: true
+      semantic-routing:
+        enabled: false
 ```
 
 ## 自定义扩展点
@@ -425,16 +448,18 @@ fast:
 业务系统可以提供同类型 Bean 覆盖默认实现：
 
 - `ChatModel`
-- `ChatMemoryRepository`
+- 名为 `fastAiChatMemoryRepository` 的 `ChatMemoryRepository`
 - 名为 `fastAiPersistenceDataSource` 的 `DataSource`
-- `ChatMemory`
+- 名为 `fastAiChatMemory` 的 `ChatMemory`
+- 名为 `fastAiConversationUsageStore` 的 `AiConversationUsageStore`
+- 名为 `fastAiConversationHistoryStore` 的 `AiConversationHistoryStore`
 - `AiLongTermMemoryStore`
 - `AiMemoryExtractor`
 - `AiConversationKeyFactory`
 - `AiToolSecurityEvaluator`
 - `AiToolRegistry`
+- `AiToolSelectionService`
 - `AiChatService`
-- `IntentRecognitionService`
 
 ## 构建与测试
 

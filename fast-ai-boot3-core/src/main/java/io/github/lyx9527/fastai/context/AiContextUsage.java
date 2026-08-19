@@ -12,6 +12,10 @@ package io.github.lyx9527.fastai.context;
  * @param messagesBeforeCompression 压缩前历史消息数
  * @param messagesAfterCompression 压缩后历史消息数
  * @param summarizedMessages 被摘要的历史消息数
+ * @param cumulativePromptTokens 当前会话累计输入 Token 数
+ * @param cumulativeCompletionTokens 当前会话累计输出 Token 数
+ * @param cumulativeTotalTokens 当前会话累计总 Token 数
+ * @param conversationRequestCount 当前会话累计成功请求次数
  */
 public record AiContextUsage(
         int estimatedPromptTokens,
@@ -22,7 +26,11 @@ public record AiContextUsage(
         int tokensBeforeCompression,
         int messagesBeforeCompression,
         int messagesAfterCompression,
-        int summarizedMessages) {
+        int summarizedMessages,
+        long cumulativePromptTokens,
+        long cumulativeCompletionTokens,
+        long cumulativeTotalTokens,
+        long conversationRequestCount) {
 
     public AiContextUsage {
         estimatedPromptTokens = Math.max(0, estimatedPromptTokens);
@@ -32,6 +40,18 @@ public record AiContextUsage(
         messagesBeforeCompression = Math.max(0, messagesBeforeCompression);
         messagesAfterCompression = Math.max(0, messagesAfterCompression);
         summarizedMessages = Math.max(0, summarizedMessages);
+        cumulativePromptTokens = Math.max(0, cumulativePromptTokens);
+        cumulativeCompletionTokens = Math.max(0, cumulativeCompletionTokens);
+        cumulativeTotalTokens = Math.max(0, cumulativeTotalTokens);
+        conversationRequestCount = Math.max(0, conversationRequestCount);
+    }
+
+    public AiContextUsage(int estimatedPromptTokens, Integer actualPromptTokens, int maxContextTokens,
+            double occupancyRate, boolean compressed, int tokensBeforeCompression,
+            int messagesBeforeCompression, int messagesAfterCompression, int summarizedMessages) {
+        this(estimatedPromptTokens, actualPromptTokens, maxContextTokens, occupancyRate, compressed,
+                tokensBeforeCompression, messagesBeforeCompression, messagesAfterCompression,
+                summarizedMessages, 0, 0, 0, 0);
     }
 
     public static AiContextUsage estimated(int estimatedPromptTokens, int maxContextTokens,
@@ -39,7 +59,8 @@ public record AiContextUsage(
             int messagesAfterCompression, int summarizedMessages) {
         return new AiContextUsage(estimatedPromptTokens, null, maxContextTokens,
                 ratio(estimatedPromptTokens, maxContextTokens), compressed, tokensBeforeCompression,
-                messagesBeforeCompression, messagesAfterCompression, summarizedMessages);
+                messagesBeforeCompression, messagesAfterCompression, summarizedMessages,
+                0, 0, 0, 0);
     }
 
     public AiContextUsage withActualPromptTokens(Integer promptTokens) {
@@ -48,7 +69,18 @@ public record AiContextUsage(
         }
         return new AiContextUsage(this.estimatedPromptTokens, promptTokens, this.maxContextTokens,
                 ratio(promptTokens, this.maxContextTokens), this.compressed, this.tokensBeforeCompression,
-                this.messagesBeforeCompression, this.messagesAfterCompression, this.summarizedMessages);
+                this.messagesBeforeCompression, this.messagesAfterCompression, this.summarizedMessages,
+                this.cumulativePromptTokens, this.cumulativeCompletionTokens, this.cumulativeTotalTokens,
+                this.conversationRequestCount);
+    }
+
+    public AiContextUsage withConversationUsage(AiConversationUsage usage) {
+        AiConversationUsage resolved = usage == null ? AiConversationUsage.empty() : usage;
+        return new AiContextUsage(this.estimatedPromptTokens, this.actualPromptTokens, this.maxContextTokens,
+                this.occupancyRate, this.compressed, this.tokensBeforeCompression,
+                this.messagesBeforeCompression, this.messagesAfterCompression, this.summarizedMessages,
+                resolved.cumulativePromptTokens(), resolved.cumulativeCompletionTokens(),
+                resolved.cumulativeTotalTokens(), resolved.requestCount());
     }
 
     public int occupiedTokens() {

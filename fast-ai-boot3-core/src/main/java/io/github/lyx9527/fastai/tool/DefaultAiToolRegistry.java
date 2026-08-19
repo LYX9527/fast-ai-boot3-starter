@@ -3,12 +3,15 @@ package io.github.lyx9527.fastai.tool;
 import org.springframework.ai.tool.ToolCallback;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * 基于 APT 生成 Bean 的默认 Tool 注册表。
  */
 public final class DefaultAiToolRegistry implements AiToolRegistry {
 
+    /** DeepSeek/OpenAI Tool 名称允许使用的字符格式。 */
+    private static final Pattern TOOL_NAME = Pattern.compile("^[a-zA-Z0-9_-]+$");
     /** 以 Tool 名称为键的不可变注册信息。 */
     private final Map<String, Registration> registrations;
 
@@ -23,11 +26,17 @@ public final class DefaultAiToolRegistry implements AiToolRegistry {
             for (AiGeneratedTool generatedTool : generatedTools) {
                 ToolCallback rawCallback = generatedTool.toolCallback();
                 String name = rawCallback.getToolDefinition().name();
+                if (name == null || !TOOL_NAME.matcher(name).matches()) {
+                    throw new IllegalStateException(
+                            "非法 LLM Tool 名称：" + name + "，名称只能包含字母、数字、下划线或短横线");
+                }
                 ToolCallback callback = new SecuredAiToolCallback(rawCallback, generatedTool.security(),
                         securityEvaluator);
+                String description = rawCallback.getToolDefinition().description();
                 Registration previous = discovered.putIfAbsent(name,
-                        new Registration(callback, Set.copyOf(generatedTool.groups()), generatedTool.toolSet(),
-                                generatedTool.toolSetDescription(), generatedTool.security()));
+                        new Registration(callback, new AiToolMetadata(name, description,
+                                Set.copyOf(generatedTool.groups()), generatedTool.toolSet(),
+                                generatedTool.toolSetDescription()), generatedTool.security()));
                 if (previous != null) {
                     throw new IllegalStateException("Duplicate LLM tool name: " + name);
                 }
@@ -89,20 +98,29 @@ public final class DefaultAiToolRegistry implements AiToolRegistry {
         return this.registrations.keySet();
     }
 
+    @Override
+    public Collection<AiToolMetadata> metadata() {
+        return this.registrations.values().stream().map(Registration::metadata).toList();
+    }
+
     /**
      * 单个 Tool 的内部注册信息。
      *
      * @param callback 已添加安全包装的 ToolCallback
-     * @param groups Tool 分组
-     * @param toolSet 工具集名称
-     * @param toolSetDescription 工具集说明
+     * @param metadata Tool 语义路由元数据
      * @param security Tool 安全元数据
      */
     private record Registration(
             ToolCallback callback,
-            Set<String> groups,
-            String toolSet,
-            String toolSetDescription,
+            AiToolMetadata metadata,
             AiToolSecurityMetadata security) {
+
+        private Set<String> groups() {
+            return this.metadata.groups();
+        }
+
+        private String toolSet() {
+            return this.metadata.toolSet();
+        }
     }
 }
