@@ -208,10 +208,9 @@ public class FastAiAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(name = "fastAiChatClient")
     @ConditionalOnMissingBean
-    public AiMemoryExtractor aiMemoryExtractor(@Qualifier("fastAiChatClient") ChatClient chatClient) {
-        return new LlmAiMemoryExtractor(chatClient);
+    public AiMemoryExtractor aiMemoryExtractor() {
+        return new DefaultAiMemoryExtractor();
     }
 
     @Bean

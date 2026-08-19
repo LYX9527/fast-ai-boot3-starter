@@ -213,7 +213,7 @@ tenantId + userId + conversationId
 - 短期记忆：Spring AI `MessageWindowChatMemory` + JDBC Repository，只保存模型下一轮需要使用的上下文窗口，默认最多保留 200 条消息。
 - 完整历史：`AiConversationHistoryStore` 追加保存每轮用户和助手消息，不受短期窗口裁剪或长上下文压缩影响。
 - 长期记忆：JDBC 持久化，按 `tenantId + userId` 隔离。
-- 自动提取：对话结束后异步提取稳定用户事实和偏好。
+- 自动提取：对话结束后异步提取稳定用户事实和偏好；默认使用本地确定性规则，不会为每轮对话额外调用主 ChatClient。业务可以覆盖 `AiMemoryExtractor` 接入独立模型或规则服务。
 - 业务接口：可注入 `AiMemoryService` 主动保存、查询和删除记忆。
 - 长上下文压缩：摘要和保留的最近消息会重新写回数据库，不会只保存在当前 JVM。
 - 扩展：声明自己的 `AiLongTermMemoryStore` Bean 可替换为 VectorStore 等实现。
@@ -460,6 +460,12 @@ fast:
 - `AiToolRegistry`
 - `AiToolSelectionService`
 - `AiChatService`
+
+### Spring MVC SSE
+
+`AiChatService` 提供 `streamSse(request)` 和 `streamSse(request, timeoutMillis)`，可以在 Spring MVC Controller 中直接返回 `SseEmitter`。默认连接超时为 5 分钟，并先发送连接注释以尽快建立 SSE；输出事件名为 `context`、`delta` 和 `complete`，事件数据为 `AiChatChunk`。客户端断开、连接超时或发送失败时会取消底层 Reactor 订阅。
+
+使用该方式的业务应用需要引入 `spring-boot-starter-web`（或显式引入 `spring-webmvc`）。原有 `stream(request)` 仍可用于 WebFlux 应用。
 
 ## 构建与测试
 

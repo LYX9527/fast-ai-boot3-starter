@@ -29,6 +29,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -202,6 +203,33 @@ class FastAiAutoConfigurationTest {
                     service.clearConversation(scope.tenantId(), scope.userId(), scope.conversationId());
                     assertThat(context.getBean(AiConversationHistoryStore.class).findByConversation(scope)).isEmpty();
                 });
+    }
+
+    @Test
+    void defaultMemoryExtractionDoesNotInvokeChatModelAgain() {
+        CountingChatModel model = new CountingChatModel();
+        ApplicationContextRunner runner = new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(FastAiAutoConfiguration.class))
+                .withBean(ChatModel.class, () -> model)
+                .withBean(ChatClient.Builder.class, () -> ChatClient.builder(model))
+                .withPropertyValues(
+                        "fast.ai.memory.long-term.auto-extract=true",
+                        "fast.ai.tools.semantic-routing.enabled=false",
+                        "fast.ai.persistence.sqlite.file=build/test-fast-ai-memory-"
+                                + UUID.randomUUID() + ".db");
+
+        runner.run(context -> {
+            AiMemoryScope scope = new AiMemoryScope("default", "memory-user", "memory-conversation");
+            context.getBean(AiChatService.class).chat(AiChatRequest.builder()
+                    .message("我喜欢无糖咖啡")
+                    .userId(scope.userId())
+                    .conversationId(scope.conversationId())
+                    .build());
+
+            List<String> memories = waitForMemories(context.getBean(AiLongTermMemoryStore.class), scope);
+            assertThat(memories).containsExactly("我喜欢无糖咖啡");
+            assertThat(model.calls).hasValue(1);
+        });
     }
 
     @Test
@@ -440,6 +468,44 @@ class FastAiAutoConfigurationTest {
             return new ChatResponse(List.of(new Generation(AssistantMessage.builder().content(content).build())),
                     ChatResponseMetadata.builder().model("stub-model").usage(new StubUsage()).build());
         }
+    }
+
+    /** 记录同步模型调用次数的长期记忆回归测试模型。 */
+    private static final class CountingChatModel implements ChatModel {
+
+        private final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public ChatResponse call(Prompt prompt) {
+            this.calls.incrementAndGet();
+            return new StubChatModel().response("stub-response");
+        }
+
+        @Override
+        public Flux<ChatResponse> stream(Prompt prompt) {
+            this.calls.incrementAndGet();
+            return Flux.just(new StubChatModel().response("stub-response"));
+        }
+    }
+
+    private static List<String> waitForMemories(AiLongTermMemoryStore store, AiMemoryScope scope) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+        while (System.nanoTime() < deadline) {
+            List<String> memories = store.search(scope, "咖啡", 5).stream()
+                    .map(memory -> memory.content())
+                    .toList();
+            if (!memories.isEmpty()) {
+                return memories;
+            }
+            try {
+                Thread.sleep(20);
+            }
+            catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("等待长期记忆写入时线程被中断", exception);
+            }
+        }
+        return List.of();
     }
 
     private static final class StubUsage implements Usage {

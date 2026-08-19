@@ -3,7 +3,12 @@ dependencies {
     api 'org.springframework.ai:spring-ai-model'
     api 'io.projectreactor:reactor-core'
     api 'org.springframework:spring-jdbc'
+    // AiChatService 的公共 SSE 方法返回 SseEmitter，因此该 API 依赖必须传递给业务应用。
+    // 仅使用 WebFlux 的业务系统仍可调用 stream( AiChatRequest )，但应避免调用 streamSse。
+    api 'org.springframework:spring-webmvc'
 
     implementation 'com.fasterxml.jackson.core:jackson-databind'
     implementation 'org.slf4j:slf4j-api'
+
+    testImplementation 'org.assertj:assertj-core'
 }
